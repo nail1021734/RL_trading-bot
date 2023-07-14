@@ -19,26 +19,26 @@ Training reward 的數值也是 100 個 episode 的平均，日期從2010到2020
 
 ### baseline
 
-![](picture/baseline_test.png)
-![](picture/baseline_training_reward.png)
+![](image/baseline_test.png)
+![](image/baseline_training_reward.png)
 
 ### 對 state 取 log 做 normalize
 
-![](picture/log_normalize_mean_test_rewards.png)
-![](picture/log_normalize_training_reward.png)
+![](image/log_normalize_mean_test_rewards.png)
+![](image/log_normalize_training_reward.png)
 
 ### 將 state 轉換成 z-score 做 normalize 
 
-![](picture/zscore_test_reward.png)
-![](picture/zscore_training_reward.png)
+![](image/zscore_test_reward.png)
+![](image/zscore_training_reward.png)
 
 ### gradient clip
 
-![](picture/clip_grad_mean_test.png)
-![](picture/clip_grad_training_reward.png)
+![](image/clip_grad_mean_test.png)
+![](image/clip_grad_training_reward.png)
 
 ### 限制模型一次只能買或賣 10 個單位
 
-![](picture/restrict_10_test_reward.png)
-![](picture/restrict_10_training_reward.png)
+![](image/restrict_10_test_reward.png)
+![](image/restrict_10_training_reward.png)
 
