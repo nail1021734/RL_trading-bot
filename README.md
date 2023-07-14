@@ -19,26 +19,46 @@ Training reward 的數值也是 100 個 episode 的平均，日期從2010到2020
 
 ### baseline
 
-![](image/baseline_test.png)
-![](image/baseline_training_reward.png)
+<p align="center" width="100%">
+    <img width="63%" src="image/baseline_test.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/baseline_training_reward.png">
+</p>
 
 ### 對 state 取 log 做 normalize
 
-![](image/log_normalize_mean_test_rewards.png)
-![](image/log_normalize_training_reward.png)
+<p align="center" width="100%">
+    <img width="63%" src="image/log_normalize_mean_test_rewards.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/log_normalize_training_reward.png">
+</p>
 
 ### 將 state 轉換成 z-score 做 normalize 
 
-![](image/zscore_test_reward.png)
-![](image/zscore_training_reward.png)
+<p align="center" width="100%">
+    <img width="63%" src="image/zscore_test_reward.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/zscore_training_reward.png">
+</p>
 
 ### gradient clip
 
-![](image/clip_grad_mean_test.png)
-![](image/clip_grad_training_reward.png)
+<p align="center" width="100%">
+    <img width="63%" src="image/clip_grad_mean_test.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/clip_grad_training_reward.png">
+</p>
 
 ### 限制模型一次只能買或賣 10 個單位
 
-![](image/restrict_10_test_reward.png)
-![](image/restrict_10_training_reward.png)
+<p align="center" width="100%">
+    <img width="63%" src="image/restrict_10_test_reward.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/restrict_10_training_reward.png">
+</p>
 
