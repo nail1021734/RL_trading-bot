@@ -8,7 +8,7 @@ pip install -r requirement.txt
 
 ## Experiment
 
-目前模型在訓練過程中雖然平均有獲益但是沒有明顯上升，各種改動的效果如下
+目前模型在訓練過程中雖然平均有獲益但是沒有明顯上升，各種改動的效果如下，藍色的線是 baseline，可以看到大部分實驗的訓練過程雖然一開始會有差異但到最後都會變成同一條線。
 
 ### Experiment environment
 
@@ -19,14 +19,26 @@ Training reward 的數值也是 100 個 episode 的平均，日期從2010到2020
 
 ### baseline
 
-![Test reward](picture/baseline_test.png)
+![](picture/baseline_test.png)
+![](picture/baseline_training_reward.png)
 
 ### 對 state 取 log 做 normalize
 
+![](picture/log_normalize_mean_test_rewards.png)
+![](picture/log_normalize_training_reward.png)
+
 ### 將 state 轉換成 z-score 做 normalize 
+
+![](picture/zscore_test_reward.png)
+![](picture/zscore_training_reward.png)
 
 ### gradient clip
 
+![](picture/clip_grad_mean_test.png)
+![](picture/clip_grad_training_reward.png)
+
 ### 限制模型一次只能買或賣 10 個單位
 
+![](picture/restrict_10_test_reward.png)
+![](picture/restrict_10_training_reward.png)
 
