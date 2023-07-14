@@ -19,7 +19,7 @@ def testing_model(
             # Please ensure the model just be updated.
             # We need to ensure the old policy is equal to policy.
             action = ppo_agent.select_action(state)
-            state, reward, done, _ = test_env.step(action.item())
+            state, reward, done, _ = test_env.step(action)
             test_env.render()
 
             if done:

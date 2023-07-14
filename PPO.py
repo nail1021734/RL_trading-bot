@@ -21,6 +21,7 @@ class RolloutBuffer:
         del self.state_values[:]
         del self.is_terminals[:]
 
+
 class ActorCritic(torch.nn.Module):
     def __init__(
         self,
@@ -234,6 +235,7 @@ class PPO:
             # take gradient step
             self.optimizer.zero_grad()
             loss.mean().backward()
+            # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             self.optimizer.step()
 
         # Copy new weights into old policy.

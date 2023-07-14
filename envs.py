@@ -319,19 +319,24 @@ class MultiFinanceEnv:
         # Update the balance and stock.
         for a, t in zip(action, self.tickers):
             # Convert the action to a float between -1 and 1. (tanh)
-            # action = (math.exp(action) - math.exp(-action)) / (math.exp(action) + math.exp(-action))
-            if a > 1:
-                a = 1
-            elif a < -1:
-                a = -1
+            a = (math.exp(a) - math.exp(-a)) / (math.exp(a) + math.exp(-a))
+            a *= 10
+            # if a > 10:
+                # a = 1
+            # elif a < -10:
+                # a = -10
 
             # Calculate the action bound.
             action_bound = {
                 'min': -self.stock[t],
                 'max': self.balance//self.episode_data.iloc[self.day-1][self.target_feature][t]
             }
+            if a < action_bound['min']:
+                a = action_bound['min']
+            elif a > action_bound['max']:
+                a = action_bound['max']
 
-            a = action_bound['min'] + (action_bound['max'] - action_bound['min'])/2*(a + 1)
+            # a = action_bound['min'] + (action_bound['max'] - action_bound['min'])/2*(a + 1)
 
             a = int(a)
 
@@ -356,8 +361,9 @@ class MultiFinanceEnv:
         """
         for t in self.tickers:
             print(
-                "Day: {:3} | {:8} |stock: {:8}|price: {:8}".format(
+                "Day: {:3} |balance {:8}| {:8} |stock: {:8}|price: {:8}".format(
                     self.day,
+                    self.balance,
                     t,
                     self.stock[t],
                     self.episode_data.iloc[self.day][self.target_feature][t],
