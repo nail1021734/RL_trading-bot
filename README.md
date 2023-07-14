@@ -3,7 +3,7 @@
 ## 環境安裝
 
 ```
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
 ## Experiment
