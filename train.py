@@ -53,11 +53,12 @@ if __name__ == '__main__':
         vf_coef=0.5,
         entropy_coef=0.01,
         has_continuous_action_space=True,
+        trainable_std=False,
     )
 
     # Initialize training config.
     config = Config(
-        exp_name='exp1',
+        exp_name='exp0',
         model_config=model_config,
         seed=42,
         training_timestep=20000000,
@@ -153,7 +154,7 @@ if __name__ == '__main__':
                     f'checkpoint/{config.exp_name}/ppo_agent_{timestep}.pth'
                 )
 
-            if model_config.has_continuous_action_space and timestep % config.action_std_decay_timestep == 0 and timestep != 0:
+            if model_config.has_continuous_action_space and timestep % config.action_std_decay_timestep == 0 and timestep != 0 and not ppo_agent.trainable_std:
                 ppo_agent.decay_action_std(
                     action_std_decay_rate=config.action_std_decay_timestep,
                     min_action_std=config.min_action_std,

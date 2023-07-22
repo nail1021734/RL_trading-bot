@@ -1,11 +1,14 @@
 # Create a environment to simulate real world stock trading.
 from pandas_datareader import data as pdr
 import random
+import gc
 import yfinance as yf
 import numpy as np
+import os, psutil
 from datetime import datetime as dt
 from typing import Union, List, Dict, Tuple, Optional, Callable
 import math
+import tracemalloc
 yf.pdr_override()
 
 
@@ -249,6 +252,7 @@ class MultiFinanceEnv:
         r"""
         Get the state of the environment.
         """
+        process = psutil.Process(os.getpid())
         # Initialize the state.
         state = [self.balance] + [self.stock[t] for t in self.tickers]
 
@@ -261,19 +265,19 @@ class MultiFinanceEnv:
         # Add the state features.
         for t in self.tickers:
             for name in self.state_feature_names:
-                state_dict[t+'_'+name] = self.episode_data.iloc[self.day][name][t]
-                state.append(self.episode_data.iloc[self.day][name][t])
+                state_dict[t+'_'+name] = self.episode_data[name][t][self.day]
+                state.append(self.episode_data[name][t][self.day])
 
         # Add the extra features.
         if self.extra_feature_dict is not None:
             for name, func in self.extra_feature_dict.items():
-                state.append(
-                    func(
-                        tickers=self.tickers,
-                        episode_data=self.episode_data,
-                        day=self.day,
-                        state_dict=state_dict,
-                    )
+                func(
+                    tickers=self.tickers,
+                    episode_data=self.episode_data,
+                    day=self.day,
+                    state_dict=state_dict,
+                    state=state,
+                    target_feature=self.target_feature,
                 )
 
         return np.array(state)
@@ -307,6 +311,7 @@ class MultiFinanceEnv:
         r"""
         Return the next state and reward after doing some action.
         """
+        tracemalloc.start()
         # Initialize the total reward.
         total_reward = 0
 
@@ -316,42 +321,73 @@ class MultiFinanceEnv:
         # Update the day.
         self.day = min(1 + self.day, self.episode_size)
 
+        print(0)
+        snap = tracemalloc.take_snapshot()
+        top_stats = snap.statistics('lineno')
+        for stat in top_stats[:2]:
+            print(stat)
+
         # Update the balance and stock.
         for a, t in zip(action, self.tickers):
             # Convert the action to a float between -1 and 1. (tanh)
-            a = (math.exp(a) - math.exp(-a)) / (math.exp(a) + math.exp(-a))
-            a *= 10
-            # if a > 10:
-                # a = 1
-            # elif a < -10:
-                # a = -10
+            # a = (math.exp(a) - math.exp(-a)) / (math.exp(a) + math.exp(-a))
+            # a *= 10
+            if a > 1:
+                a = 1
+            elif a < -1:
+                a = -1
 
+            print(1)
+            snap = tracemalloc.take_snapshot()
+            top_stats = snap.statistics('lineno')
+            for stat in top_stats[:2]:
+                print(stat)
             # Calculate the action bound.
             action_bound = {
                 'min': -self.stock[t],
-                'max': self.balance//self.episode_data.iloc[self.day-1][self.target_feature][t]
+                'max': self.balance//self.episode_data[self.target_feature][t][self.day-1]
             }
-            if a < action_bound['min']:
-                a = action_bound['min']
-            elif a > action_bound['max']:
-                a = action_bound['max']
+            # if a < action_bound['min']:
+                # a = action_bound['min']
+            # elif a > action_bound['max']:
+                # a = action_bound['max']
 
-            # a = action_bound['min'] + (action_bound['max'] - action_bound['min'])/2*(a + 1)
+            a = action_bound['min'] + (action_bound['max'] - action_bound['min'])/2*(a + 1)
 
             a = int(a)
 
             # Update balance and stock.
-            self.balance -= self.episode_data.iloc[self.day-1][self.target_feature][t] * a
+            print(2)
+            snap = tracemalloc.take_snapshot()
+            top_stats = snap.statistics('lineno')
+            for stat in top_stats[:2]:
+                print(stat)
+            self.balance -= self.episode_data[self.target_feature][t][self.day-1] * a
             self.stock[t] += a
 
+            print(3)
+            snap = tracemalloc.take_snapshot()
+            top_stats = snap.statistics('lineno')
+            for stat in top_stats[:2]:
+                print(stat)
             # Calculate the reward.
-            current_portfolio = self.balance + self.stock[t] * self.episode_data.iloc[self.day-1][self.target_feature][t]
-            next_portfolio = self.balance + self.stock[t] * self.episode_data.iloc[self.day][self.target_feature][t]
+            print(4)
+            snap = tracemalloc.take_snapshot()
+            top_stats = snap.statistics('lineno')
+            for stat in top_stats[:2]:
+                print(stat)
+            current_portfolio = self.balance + self.stock[t] * self.episode_data[self.target_feature][t][self.day-1]
+            next_portfolio = self.balance + self.stock[t] * self.episode_data[self.target_feature][t][self.day]
             total_reward += next_portfolio - current_portfolio
             # print(reward)
-
+            print(5)
+            snap = tracemalloc.take_snapshot()
+            top_stats = snap.statistics('lineno')
+            for stat in top_stats[:2]:
+                print(stat)
         # Return the next state and reward.
         next_state = self.get_state()
+        gc.collect()
 
         return next_state, total_reward, done, {}
 

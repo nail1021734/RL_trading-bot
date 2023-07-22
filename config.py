@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 import json
 import pathlib
 from envs import FinanceEnv
+import copy
 
 @dataclass
 class ModelConfig:
@@ -21,6 +22,7 @@ class ModelConfig:
     vf_coef: float = 0.5
     entropy_coef: float = 0.01
     has_continuous_action_space: bool = True
+    trainable_std: bool = False
 
     def __dict__(self):
         return asdict(self)
@@ -97,8 +99,12 @@ class Config:
         if not dir_name.exists():
             dir_name.mkdir(parents=True, exist_ok=True)
 
+        tmp = self.env_kwargs['extra_feature_dict']
+        del self.env_kwargs['extra_feature_dict']
         with open(dir_name / 'config.json', 'w') as f:
             json.dump(self.__dict__(), f, indent=4)
+
+        self.env_kwargs['extra_feature_dict'] = tmp
 
     @classmethod
     def load_config(cls, dir_name: str):

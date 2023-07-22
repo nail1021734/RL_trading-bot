@@ -17,6 +17,9 @@ pip install -r requirements.txt
 Test reward 的數值為 100 個 episode 的平均，測試資料的日期從 2021 年初到現在，每個 episode 從這個日期區間抽樣 30 天給模型操作
 Training reward 的數值也是 100 個 episode 的平均，日期從2010到2020年底
 
+### random baseline
+
+於 test 資料測試 10000 次 平均獲益 415.72660
 ### baseline
 
 <p align="center" width="100%">
