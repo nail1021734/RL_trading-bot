@@ -22,7 +22,7 @@ if __name__ == '__main__':
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average},
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average,},
         # 'extra_feature_dict': None,
     }
 
@@ -36,7 +36,7 @@ if __name__ == '__main__':
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average},
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average,},
         # 'extra_feature_dict': None,
     }
 
@@ -63,10 +63,11 @@ if __name__ == '__main__':
 
     # Initialize training config.
     config = Config(
-        exp_name='exp4_both_avg',
+        exp_name='exp4_both_avg_s22',
         model_config=model_config,
-        seed=42,
-        training_timestep=500000,
+        # seed=42,
+        seed=22,
+        training_timestep=50000,
         # Update model every 10 episode.
         update_timestep=env.episode_size*10,
         action_std_decay_timestep=env.episode_size*1000,
@@ -130,7 +131,7 @@ if __name__ == '__main__':
             # Update PPO agent.
             if timestep % config.update_timestep == 0 and timestep != 0:
                 print(
-                    f'Episode: {i_episode}, timestep: {timestep}, Last_10_rewards_avg: {sum(hst_final_rewards[-10:])/min(len(hst_final_rewards), 10):.2f}')
+                    f'Episode: {i_episode}, timestep: {timestep}, Last_10_rewards_avg: {sum(hst_final_rewards)/len(hst_final_rewards):.2f}')
                 ppo_agent.update()
 
             if timestep % config.log_timestep == 0 and timestep != 0:

@@ -65,3 +65,18 @@ Training reward 的數值也是 100 個 episode 的平均，日期從2010到2020
     <img width="63%" src="image/restrict_10_training_reward.png">
 </p>
 
+### 加上過去股價平均值
+
+- 藍色：baseline
+- 粉紅：每個公司過去所有股價平均(5家公司所以是加上5個特徵到輸入中)
+- 黃色：每個公司最新5天股價平均(5家公司所以是加上5個特徵到輸入中)
+- 紫色：兩種平均都加入
+
+可以看出紫色的線在test set明顯表現比較好
+
+<p align="center" width="100%">
+    <img width="63%" src="image/add_avg_test.png">
+</p>
+<p align="center" width="100%">
+    <img width="63%" src="image/add_avg_train.png">
+</p>
