@@ -3,13 +3,11 @@ import sys
 from envs import FinanceEnv, MultiFinanceEnv
 from config import ModelConfig, Config
 from PPO import PPO
-import tracemalloc
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import random
-import os, psutil
 from eval_func import testing_model
-from utils import average
+from utils import average, mov_average
 import gc
 
 
@@ -24,7 +22,8 @@ if __name__ == '__main__':
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'avg': average},
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average},
+        # 'extra_feature_dict': None,
     }
 
     # Create test environment.
@@ -37,7 +36,8 @@ if __name__ == '__main__':
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'avg': average},
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average},
+        # 'extra_feature_dict': None,
     }
 
     # Initialize environments.
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     # Initialize training config.
     config = Config(
-        exp_name='exp0_test',
+        exp_name='exp4_both_avg',
         model_config=model_config,
         seed=42,
         training_timestep=500000,
@@ -108,85 +108,69 @@ if __name__ == '__main__':
         trainable_std=model_config.trainable_std,
     )
 
-    tracemalloc.start()
     # Training loop.
     timestep = 0
     # History rewards
     hst_final_rewards = []
     for i_episode in range(config.training_timestep):
-        process = psutil.Process(os.getpid())
-        print('reset')
         state = env.reset()
         for _ in range(env.episode_size):
             timestep += 1
             # Select action.
             action = ppo_agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[0:2]:
-                print(stat)
-            # next_state, reward, done, _ = state, 0, False, None
+
             # Append reward and is_terminal to rollout buffer.
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[0:2]:
-                print(stat)
+
             # Update PPO agent.
             state = next_state
-            ppo_agent.buffer.clear()
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[0:2]:
-                print(stat)
 
             # Update PPO agent.
-            # if timestep % config.update_timestep == 0 and timestep != 0:
-                # print(
-                    # f'Episode: {i_episode}, timestep: {timestep}, Last_10_rewards_avg: {sum(hst_final_rewards[-10:])/min(len(hst_final_rewards), 10):.2f}')
-                # ppo_agent.update()
+            if timestep % config.update_timestep == 0 and timestep != 0:
+                print(
+                    f'Episode: {i_episode}, timestep: {timestep}, Last_10_rewards_avg: {sum(hst_final_rewards[-10:])/min(len(hst_final_rewards), 10):.2f}')
+                ppo_agent.update()
 
-            # if timestep % config.log_timestep == 0 and timestep != 0:
-                # print('Logging...')
-                # writer.add_scalar(
-                    # 'rewards_avg',
-                    # sum(hst_final_rewards)/len(hst_final_rewards),
-                    # timestep
-                # )
-                # hst_final_rewards = []
+            if timestep % config.log_timestep == 0 and timestep != 0:
+                print('Logging...')
+                writer.add_scalar(
+                    'rewards_avg',
+                    sum(hst_final_rewards)/len(hst_final_rewards),
+                    timestep
+                )
+                hst_final_rewards = []
 
-            # if timestep % config.save_timestep == 0 and timestep != 0:
+            if timestep % config.save_timestep == 0 and timestep != 0:
                 # Evaluate model.
-                # print('Evaluating model...')
-                # mean_test_reward = testing_model(
-                    # test_env=test_env,
-                    # ppo_agent=ppo_agent,
-                    # episode_num=100,
-                # )
-                # writer.add_scalar(
-                    # 'mean_test_rewards',
-                    # mean_test_reward,
-                    # timestep,
-                # )
-                # print('Saving model...')
-                # ppo_agent.save(
-                    # f'checkpoint/{config.exp_name}/ppo_agent_{timestep}.pth'
-                # )
+                print('Evaluating model...')
+                mean_test_reward = testing_model(
+                    test_env=test_env,
+                    ppo_agent=ppo_agent,
+                    episode_num=100,
+                )
+                writer.add_scalar(
+                    'mean_test_rewards',
+                    mean_test_reward,
+                    timestep,
+                )
+                print('Saving model...')
+                ppo_agent.save(
+                    f'checkpoint/{config.exp_name}/ppo_agent_{timestep}.pth'
+                )
 
-            # if model_config.has_continuous_action_space and timestep % config.action_std_decay_timestep == 0 and timestep != 0 and not ppo_agent.trainable_std:
-                # ppo_agent.decay_action_std(
-                    # action_std_decay_rate=config.action_std_decay_timestep,
-                    # min_action_std=config.min_action_std,
-                # )
+            if model_config.has_continuous_action_space and timestep % config.action_std_decay_timestep == 0 and timestep != 0 and not ppo_agent.trainable_std:
+                ppo_agent.decay_action_std(
+                    action_std_decay_rate=config.action_std_decay_timestep,
+                    min_action_std=config.min_action_std,
+                )
 
-            # if done:
-                # hst_final_rewards.append(env.get_final_reward())
-                # break
+            if done:
+                hst_final_rewards.append(env.get_final_reward())
+                break
         gc.collect()
 
-    tracemalloc.stop()
     # Close writer.
     writer.close()
 

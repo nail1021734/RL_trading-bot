@@ -2,13 +2,12 @@
 from pandas_datareader import data as pdr
 import random
 import gc
-import yfinance as yf
 import numpy as np
 import os, psutil
 from datetime import datetime as dt
 from typing import Union, List, Dict, Tuple, Optional, Callable
 import math
-import tracemalloc
+import yfinance as yf
 yf.pdr_override()
 
 
@@ -239,10 +238,17 @@ class MultiFinanceEnv:
         self.data = pdr.get_data_yahoo(
             self.tickers, start=self.start_date, end=self.end_date)
         self.data = self.data.dropna()
-        self.data = self.data.reset_index()
+        self.data_date = self.data.index.to_list()
+        self.data = self.data.reset_index(drop=True).to_dict('list')
+        tmp = {t: {} for t in self.tickers}
+        for key, val in self.data.items():
+            feature, ticker = key
+            tmp[ticker][feature] = val
+        self.data = tmp
 
         # Initialize the state features.
         self.episode_data = None
+        self.episode_date = None
         self.begin_date = 0
         self.day = 0
         self.balance = initial_balance
@@ -252,7 +258,6 @@ class MultiFinanceEnv:
         r"""
         Get the state of the environment.
         """
-        process = psutil.Process(os.getpid())
         # Initialize the state.
         state = [self.balance] + [self.stock[t] for t in self.tickers]
 
@@ -265,8 +270,8 @@ class MultiFinanceEnv:
         # Add the state features.
         for t in self.tickers:
             for name in self.state_feature_names:
-                state_dict[t+'_'+name] = self.episode_data[name][t][self.day]
-                state.append(self.episode_data[name][t][self.day])
+                state_dict[t+'_'+name] = self.episode_data[t][name][self.day]
+                state.append(self.episode_data[t][name][self.day])
 
         # Add the extra features.
         if self.extra_feature_dict is not None:
@@ -295,12 +300,17 @@ class MultiFinanceEnv:
         if rand:
             self.begin_date = random.randint(
                 0,
-                len(self.data) - self.episode_size - 1,
+                len(self.data_date) - self.episode_size - 1,
             )
         else:
             self.begin_date = 0
         # Get the episode data.
-        self.episode_data = self.data.iloc[self.begin_date: self.begin_date + self.episode_size+1].reset_index(drop=True)
+        self.episode_date = self.data_date[self.begin_date: self.begin_date + self.episode_size+1]
+        self.episode_data = {t: {} for t in self.tickers}
+        for t, val in self.data.items():
+            for key, value in val.items():
+                self.episode_data[t][key] = value[self.begin_date: self.begin_date + self.episode_size+1]
+        # self.episode_data = self.data.iloc[self.begin_date: self.begin_date + self.episode_size+1].reset_index(drop=True)
 
         return self.get_state()
 
@@ -311,7 +321,6 @@ class MultiFinanceEnv:
         r"""
         Return the next state and reward after doing some action.
         """
-        tracemalloc.start()
         # Initialize the total reward.
         total_reward = 0
 
@@ -320,12 +329,6 @@ class MultiFinanceEnv:
 
         # Update the day.
         self.day = min(1 + self.day, self.episode_size)
-
-        print(0)
-        snap = tracemalloc.take_snapshot()
-        top_stats = snap.statistics('lineno')
-        for stat in top_stats[:2]:
-            print(stat)
 
         # Update the balance and stock.
         for a, t in zip(action, self.tickers):
@@ -337,15 +340,10 @@ class MultiFinanceEnv:
             elif a < -1:
                 a = -1
 
-            print(1)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[:2]:
-                print(stat)
             # Calculate the action bound.
             action_bound = {
                 'min': -self.stock[t],
-                'max': self.balance//self.episode_data[self.target_feature][t][self.day-1]
+                'max': self.balance//self.episode_data[t][self.target_feature][self.day-1]
             }
             # if a < action_bound['min']:
                 # a = action_bound['min']
@@ -357,37 +355,16 @@ class MultiFinanceEnv:
             a = int(a)
 
             # Update balance and stock.
-            print(2)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[:2]:
-                print(stat)
-            self.balance -= self.episode_data[self.target_feature][t][self.day-1] * a
+            self.balance -= self.episode_data[t][self.target_feature][self.day-1] * a
             self.stock[t] += a
 
-            print(3)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[:2]:
-                print(stat)
             # Calculate the reward.
-            print(4)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[:2]:
-                print(stat)
-            current_portfolio = self.balance + self.stock[t] * self.episode_data[self.target_feature][t][self.day-1]
-            next_portfolio = self.balance + self.stock[t] * self.episode_data[self.target_feature][t][self.day]
+            current_portfolio = self.balance + self.stock[t] * self.episode_data[t][self.target_feature][self.day-1]
+            next_portfolio = self.balance + self.stock[t] * self.episode_data[t][self.target_feature][self.day]
             total_reward += next_portfolio - current_portfolio
             # print(reward)
-            print(5)
-            snap = tracemalloc.take_snapshot()
-            top_stats = snap.statistics('lineno')
-            for stat in top_stats[:2]:
-                print(stat)
         # Return the next state and reward.
         next_state = self.get_state()
-        gc.collect()
 
         return next_state, total_reward, done, {}
 
@@ -402,7 +379,7 @@ class MultiFinanceEnv:
                     self.balance,
                     t,
                     self.stock[t],
-                    self.episode_data.iloc[self.day][self.target_feature][t],
+                    self.episode_data[t][self.target_feature][self.day],
                 )
             )
 
@@ -418,7 +395,7 @@ class MultiFinanceEnv:
         """
         now_balance = self.balance
         for t in self.tickers:
-            now_balance += self.stock[t] * self.episode_data.iloc[self.day][self.target_feature][t]
+            now_balance += self.stock[t] * self.episode_data[t][self.target_feature][self.day]
 
         return now_balance - self.initial_balance
 
