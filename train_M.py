@@ -7,7 +7,6 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import random
 from eval_func import testing_model
-from utils import average, mov_average, date
 import gc
 
 
@@ -19,6 +18,7 @@ if __name__ == '__main__':
     # 3. Add more feature.
 
     stock_list = ['2330.TW', '2317.TW', '2454.TW', '2382.TW', '2412.TW', '2308.TW', '2881.TW', '6505.TW', '2882.TW', '2303.TW', '1303.TW', '1301.TW', '2886.TW', '3711.TW', '2891.TW', '2002.TW', '1216.TW', '5880.TW', '2207.TW', '2884.TW']
+    print(f'Number of stock: {len(set(stock_list))}')
     # Create environment config.
     env_setting = {
         'start_date': '2010-01-01',
@@ -31,8 +31,8 @@ if __name__ == '__main__':
         'target_feature': 'Adj Close',
         'clip_action': True,
         'softmax_action': False,
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average, 'date': date},
-        # 'extra_feature_dict': None,
+        'extra_feature_names': ['moving_average', 'average', 'date'],
+        'output_split_ticket_state': False,
     }
 
     # Create test environment.
@@ -47,8 +47,8 @@ if __name__ == '__main__':
         'target_feature': 'Adj Close',
         'clip_action': True,
         'softmax_action': False,
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average, 'date': date},
-        # 'extra_feature_dict': None,
+        'extra_feature_names': ['moving_average', 'average', 'date'],
+        'output_split_ticket_state': False,
     }
 
     # Initialize environments.
@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     # Initialize training config.
     config = Config(
-        exp_name='baseline_tanh_date_GAE_newreward_test',
+        exp_name='test',
         model_config=model_config,
         # seed=42,
         seed=22,

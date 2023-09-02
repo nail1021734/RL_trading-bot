@@ -1,4 +1,5 @@
 # Create a environment to simulate real world stock trading.
+from utils import ExtraFeatureProcessor
 from pandas_datareader import data as pdr
 import random
 import gc
@@ -210,8 +211,9 @@ class MultiFinanceEnv:
         softmax_action: bool = False,
         target_feature: str = 'Adj Close',
         clip_action: bool = False,
-        extra_feature_dict: Dict[str, Callable] = None,
+        extra_feature_names: List[str] = None,
         use_final_reward: bool = False,
+        output_split_ticket_state: bool = False,
     ):
         r"""
         Initialize the environment.
@@ -234,12 +236,27 @@ class MultiFinanceEnv:
         self.target_feature = target_feature
         self.action_dim = len(tickers)
         self.state_feature_names = state_feature_names
-        self.extra_feature_dict = extra_feature_dict
-        # Features, now balance and now stock.
-        self.state_dim = 1 + (len(state_feature_names) + 1)*len(tickers) + 1
-        if extra_feature_dict is not None:
-            self.state_dim += (len(extra_feature_dict)-1)*len(tickers)
+        self.extra_feature_names = extra_feature_names
+        self.extra_feature_processor = ExtraFeatureProcessor(
+            extra_feature_names=extra_feature_names,
+        )
         self.use_final_reward = use_final_reward
+        self.output_split_ticket_state = output_split_ticket_state
+        # Features, now balance and now stock.
+        if self.output_split_ticket_state:
+            self.state_dim = 2 + len(state_feature_names)
+            general_feature_num, feature_num = \
+                self.extra_feature_processor.get_extra_feature_num(
+                    env=self,
+                )
+            self.state_dim += general_feature_num + feature_num
+        else:
+            self.state_dim = 1 + (len(state_feature_names)+1)*len(tickers)
+            general_feature_num, feature_num = \
+                self.extra_feature_processor.get_extra_feature_num(
+                    env=self,
+                )
+            self.state_dim += general_feature_num + feature_num*len(tickers)
 
         # Get the data.
         self.data = pdr.get_data_yahoo(
@@ -264,34 +281,48 @@ class MultiFinanceEnv:
         r"""
         Get the state of the environment.
         """
-        # Initialize the state.
-        state = [self.balance] + [self.stock[t] for t in self.tickers]
-
         # Initialize the state dict.
-        state_dict = {
-            'balance': self.balance,
-            'stock': self.stock,
-        }
+        state_dict = {t: {} for t in self.tickers}
+        state_dict['balance'] = self.balance
+        for t in self.tickers:
+            state_dict[t]['stock'] = self.stock[t]
 
-        # Add the state features.
         for t in self.tickers:
             for name in self.state_feature_names:
-                state_dict[t+'_'+name] = self.episode_data[t][name][self.day]
-                state.append(self.episode_data[t][name][self.day])
+                state_dict[t][name] = self.episode_data[t][name][self.day]
 
         # Add the extra features.
-        if self.extra_feature_dict is not None:
-            for name, func in self.extra_feature_dict.items():
-                func(
-                    tickers=self.tickers,
-                    episode_data=self.episode_data,
-                    day=self.day,
-                    state_dict=state_dict,
-                    state=state,
-                    target_feature=self.target_feature,
-                    begin_date=self.begin_date,
-                    data_date=self.data_date,
-                )
+        self.extra_feature_processor.process(
+            state_dict=state_dict,
+            env=self,
+        )
+
+        # Output feature.
+        state = []
+        if self.output_split_ticket_state:
+            for t in self.tickers:
+                state.append([])
+                state[-1].append(state_dict['balance'])
+                state[-1].append(state_dict[t]['stock'])
+                for feature_name in self.state_feature_names:
+                    state[-1].append(state_dict[t][feature_name])
+                for feature_name in self.extra_feature_names:
+                    if feature_name in self.extra_feature_processor.general_functions.keys():
+                        state.append(state_dict[feature_name])
+                    else:
+                        state.append(state_dict[t][feature_name])
+        else:
+            state.append(state_dict['balance'])
+            for feature_name in self.extra_feature_names:
+                if feature_name in self.extra_feature_processor.general_functions.keys():
+                    state.append(state_dict[feature_name])
+            for t in self.tickers:
+                state.append(state_dict[t]['stock'])
+                for feature_name in self.state_feature_names:
+                    state.append(state_dict[t][feature_name])
+                for feature_name in self.extra_feature_names:
+                    if feature_name in self.extra_feature_processor.functions.keys():
+                        state.append(state_dict[t][feature_name])
 
         return np.array(state)
 

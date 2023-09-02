@@ -42,28 +42,8 @@ class Config:
         training_episode_num: int = 100,
         update_timestep: int = 2048,
         env_name: str = 'FinanceEnv',
-        env_kwargs: dict = {
-            'start_date': '2010-01-01',
-            'end_date': '2020-12-31',
-            'ticker': '2330.TW',
-            'state_feature_names': ['Open', 'High', 'Low', 'Close', 'Adj Close'],
-            'initial_balance': 10000,
-            'initial_stock': 0,
-            'episode_size': 30,
-            'target_feature': 'Adj Close',
-            'extra_feature_dict': None,
-        },
-        test_env_kwargs: dict = {
-            'start_date': '2020-12-31',
-            'end_date': None,
-            'ticker': '2330.TW',
-            'state_feature_names': ['Open', 'High', 'Low', 'Close', 'Adj Close'],
-            'initial_balance': 10000,
-            'initial_stock': 0,
-            'episode_size': 30,
-            'target_feature': 'Adj Close',
-            'extra_feature_dict': None,
-        },
+        env_kwargs: Dict = {},
+        test_env_kwargs: Dict = {},
         log_timestep: int = 10,
         save_timestep: int = 100,
         action_std_decay_timestep: int = 1000000,
@@ -104,12 +84,8 @@ class Config:
         if not dir_name.exists():
             dir_name.mkdir(parents=True, exist_ok=True)
 
-        tmp = self.env_kwargs['extra_feature_dict']
-        del self.env_kwargs['extra_feature_dict']
         with open(dir_name / 'config.json', 'w') as f:
             json.dump(self.__dict__(), f, indent=4)
-
-        self.env_kwargs['extra_feature_dict'] = tmp
 
     @classmethod
     def load_config(cls, dir_name: str):
