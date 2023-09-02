@@ -7,22 +7,31 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import random
 from eval_func import testing_model
-from utils import average, mov_average
+from utils import average, mov_average, date
 import gc
 
 
+
 if __name__ == '__main__':
+    # TODO:
+    # 1. Select and add more ticker.
+    # 2. Test GAE.
+    # 3. Add more feature.
+
+    stock_list = ['2330.TW', '2317.TW', '2454.TW', '2382.TW', '2412.TW', '2308.TW', '2881.TW', '6505.TW', '2882.TW', '2303.TW', '1303.TW', '1301.TW', '2886.TW', '3711.TW', '2891.TW', '2002.TW', '1216.TW', '5880.TW', '2207.TW', '2884.TW']
     # Create environment config.
     env_setting = {
         'start_date': '2010-01-01',
         'end_date': '2020-12-31',
-        'tickers': ['3231.TW', '2356.TW', '2610.TW', '2330.TW', '0050.TW'],
+        'tickers': stock_list,
         'state_feature_names': ['Open', 'Close', 'Adj Close'],
         'initial_balance': 10000,
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average,},
+        'clip_action': True,
+        'softmax_action': False,
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average, 'date': date},
         # 'extra_feature_dict': None,
     }
 
@@ -30,13 +39,15 @@ if __name__ == '__main__':
     test_env_setting = {
         'start_date': '2020-12-31',
         'end_date': None,
-        'tickers': ['3231.TW', '2356.TW', '2610.TW', '2330.TW', '0050.TW'],
+        'tickers': stock_list,
         'state_feature_names': ['Open', 'Close', 'Adj Close'],
         'initial_balance': 10000,
         'initial_stock': 0,
         'episode_size': 30,
         'target_feature': 'Adj Close',
-        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average,},
+        'clip_action': True,
+        'softmax_action': False,
+        'extra_feature_dict': {'mov_avg': mov_average, 'avg': average, 'date': date},
         # 'extra_feature_dict': None,
     }
 
@@ -51,27 +62,32 @@ if __name__ == '__main__':
         hidden_dim=256,
         actor_learning_rate=5e-4,
         critic_learning_rate=3e-4,
-        gamma=0.99,
+        gamma=0.925,
         update_iteration=10,
-        action_std_init=0.6,
         clip=0.2,
         vf_coef=0.5,
         entropy_coef=0.01,
         has_continuous_action_space=True,
-        trainable_std=False,
+        tanh_action=True,
+        use_GAE=True,
+        fix_var_param=None,
+        # fix_var_param={
+            # 'init_std': 0.6,
+            # 'decay_rate': 0.9999,
+            # 'min_value': 0.2,
+            # 'decay_episode': 1000,
+        # }
     )
 
     # Initialize training config.
     config = Config(
-        exp_name='exp4_both_avg_s22',
+        exp_name='baseline_tanh_date_GAE_newreward_test',
         model_config=model_config,
         # seed=42,
         seed=22,
-        training_timestep=50000,
+        training_episode_num=50000,
         # Update model every 10 episode.
         update_timestep=env.episode_size*10,
-        action_std_decay_timestep=env.episode_size*1000,
-        min_action_std=0.2,
         env_name='MultiFinanceEnv',
         env_kwargs=env_setting,
         test_env_kwargs=test_env_setting,
@@ -103,17 +119,18 @@ if __name__ == '__main__':
         update_iteration=model_config.update_iteration,
         clip=model_config.clip,
         has_continuous_action_space=model_config.has_continuous_action_space,
-        action_std_init=model_config.action_std_init,
         vf_coef=model_config.vf_coef,
         entropy_coef=model_config.entropy_coef,
-        trainable_std=model_config.trainable_std,
+        tanh_action=model_config.tanh_action,
+        use_GAE=model_config.use_GAE,
+        fix_var_param=model_config.fix_var_param,
     )
 
     # Training loop.
     timestep = 0
     # History rewards
     hst_final_rewards = []
-    for i_episode in range(config.training_timestep):
+    for i_episode in range(config.training_episode_num):
         state = env.reset()
         for _ in range(env.episode_size):
             timestep += 1
@@ -130,9 +147,14 @@ if __name__ == '__main__':
 
             # Update PPO agent.
             if timestep % config.update_timestep == 0 and timestep != 0:
+                if done:
+                    hst_final_rewards.append(env.get_final_reward())
                 print(
                     f'Episode: {i_episode}, timestep: {timestep}, Last_10_rewards_avg: {sum(hst_final_rewards)/len(hst_final_rewards):.2f}')
                 ppo_agent.update()
+
+            if ppo_agent.fix_var is not None and i_episode % ppo_agent.fix_var.decay_episode == 0 and i_episode != 0:
+                ppo_agent.fix_var.step()
 
             if timestep % config.log_timestep == 0 and timestep != 0:
                 print('Logging...')
@@ -161,14 +183,8 @@ if __name__ == '__main__':
                     f'checkpoint/{config.exp_name}/ppo_agent_{timestep}.pth'
                 )
 
-            if model_config.has_continuous_action_space and timestep % config.action_std_decay_timestep == 0 and timestep != 0 and not ppo_agent.trainable_std:
-                ppo_agent.decay_action_std(
-                    action_std_decay_rate=config.action_std_decay_timestep,
-                    min_action_std=config.min_action_std,
-                )
 
             if done:
-                hst_final_rewards.append(env.get_final_reward())
                 break
         gc.collect()
 

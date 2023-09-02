@@ -8,6 +8,7 @@ from datetime import datetime as dt
 from typing import Union, List, Dict, Tuple, Optional, Callable
 import math
 import yfinance as yf
+import torch
 yf.pdr_override()
 
 
@@ -206,8 +207,11 @@ class MultiFinanceEnv:
         initial_balance: int = 10000,
         episode_size: int = 30,
         initial_stock: int = 0,
+        softmax_action: bool = False,
         target_feature: str = 'Adj Close',
+        clip_action: bool = False,
         extra_feature_dict: Dict[str, Callable] = None,
+        use_final_reward: bool = False,
     ):
         r"""
         Initialize the environment.
@@ -221,6 +225,8 @@ class MultiFinanceEnv:
         else:
             self.end_date = dt.strptime(end_date, "%Y-%m-%d")
 
+        self.softmax_action = softmax_action
+        self.clip_action = clip_action
         self.tickers = tickers
         self.episode_size = episode_size
         self.initial_stock = initial_stock
@@ -230,9 +236,10 @@ class MultiFinanceEnv:
         self.state_feature_names = state_feature_names
         self.extra_feature_dict = extra_feature_dict
         # Features, now balance and now stock.
-        self.state_dim = 1 + (len(state_feature_names) + 1)*len(tickers)
+        self.state_dim = 1 + (len(state_feature_names) + 1)*len(tickers) + 1
         if extra_feature_dict is not None:
-            self.state_dim += len(extra_feature_dict)*len(tickers)
+            self.state_dim += (len(extra_feature_dict)-1)*len(tickers)
+        self.use_final_reward = use_final_reward
 
         # Get the data.
         self.data = pdr.get_data_yahoo(
@@ -248,7 +255,6 @@ class MultiFinanceEnv:
 
         # Initialize the state features.
         self.episode_data = None
-        self.episode_date = None
         self.begin_date = 0
         self.day = 0
         self.balance = initial_balance
@@ -283,6 +289,8 @@ class MultiFinanceEnv:
                     state_dict=state_dict,
                     state=state,
                     target_feature=self.target_feature,
+                    begin_date=self.begin_date,
+                    data_date=self.data_date,
                 )
 
         return np.array(state)
@@ -330,27 +338,68 @@ class MultiFinanceEnv:
         # Update the day.
         self.day = min(1 + self.day, self.episode_size)
 
-        # Update the balance and stock.
+        # Sell stock.
         for a, t in zip(action, self.tickers):
-            # Convert the action to a float between -1 and 1. (tanh)
-            # a = (math.exp(a) - math.exp(-a)) / (math.exp(a) + math.exp(-a))
-            # a *= 10
-            if a > 1:
-                a = 1
-            elif a < -1:
-                a = -1
+            if a >= 0:
+                continue
+            # Clip the action to a float between -1 and 1.
+            if self.clip_action:
+                if a < -1:
+                    a = -1
+                min_value = -self.stock[t]
+                max_value = 0.0
+                a = min_value + (max_value - min_value) * (a + 1) / 2
+
+            # Clip the action to the action bound.
+            if a < -self.stock[t]:
+                a = -self.stock[t]
+
+            a = int(a)
+
+            # Update balance and stock.
+            self.balance -= self.episode_data[t][self.target_feature][self.day-1] * a
+            self.stock[t] += a
+
+            # Calculate the reward.
+            current_portfolio = self.balance + self.stock[t] * self.episode_data[t][self.target_feature][self.day-1]
+            next_portfolio = self.balance + self.stock[t] * self.episode_data[t][self.target_feature][self.day]
+            total_reward += next_portfolio - current_portfolio
+
+        # Use softmax to calculate weight of each stock.
+        if self.softmax_action:
+            weight_action = torch.tensor(action)
+            weight_action /= weight_action.max()
+            weight_action[weight_action <= 0] = float('-inf')
+            weight_action = torch.nn.functional.softmax(weight_action, dim=-1)
+            weight_balance = weight_action * self.balance
+            weight_balance = weight_balance.tolist()
+            weighted_balance = {t: b for b, t in zip(weight_balance, self.tickers)}
+
+
+        # Buy stock.
+        for a, t in zip(action, self.tickers):
+            if a < 0:
+                continue
+            # Convert the action to a float between -1 and 1.
+            if self.clip_action:
+                if a > 1:
+                    a = 1
+                min_value = 0.0
+                if self.softmax_action:
+                    max_value = weighted_balance[t]//self.episode_data[t][self.target_feature][self.day-1]
+                else:
+                    max_value = self.balance//self.episode_data[t][self.target_feature][self.day-1]
+                a = min_value + (max_value - min_value) * (a + 1) / 2
 
             # Calculate the action bound.
-            action_bound = {
-                'min': -self.stock[t],
-                'max': self.balance//self.episode_data[t][self.target_feature][self.day-1]
-            }
-            # if a < action_bound['min']:
-                # a = action_bound['min']
-            # elif a > action_bound['max']:
-                # a = action_bound['max']
-
-            a = action_bound['min'] + (action_bound['max'] - action_bound['min'])/2*(a + 1)
+            if self.softmax_action:
+                bound = weighted_balance[t]//self.episode_data[t][self.target_feature][self.day-1]
+                if a > bound:
+                    a = bound
+            else:
+                bound = self.balance//self.episode_data[t][self.target_feature][self.day-1]
+                if a > bound:
+                    a = bound
 
             a = int(a)
 
@@ -365,6 +414,9 @@ class MultiFinanceEnv:
             # print(reward)
         # Return the next state and reward.
         next_state = self.get_state()
+
+        if done and self.use_final_reward:
+            total_reward = self.get_final_reward()
 
         return next_state, total_reward, done, {}
 

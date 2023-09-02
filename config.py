@@ -4,6 +4,7 @@ import json
 import pathlib
 from envs import FinanceEnv
 import copy
+from typing import Union, Dict
 
 @dataclass
 class ModelConfig:
@@ -17,12 +18,13 @@ class ModelConfig:
     critic_learning_rate: float = 1e-3
     gamma: float = 0.99
     update_iteration: int = 10
-    action_std_init: float = 0.6
     clip: float = 0.2
     vf_coef: float = 0.5
     entropy_coef: float = 0.01
     has_continuous_action_space: bool = True
-    trainable_std: bool = False
+    tanh_action: bool = True
+    use_GAE: bool = True
+    fix_var_param: Union[Dict, None] = None
 
     def __dict__(self):
         return asdict(self)
@@ -37,7 +39,7 @@ class Config:
         exp_name: str,
         model_config: ModelConfig,
         seed: int = 42,
-        training_timestep: int = 100,
+        training_episode_num: int = 100,
         update_timestep: int = 2048,
         env_name: str = 'FinanceEnv',
         env_kwargs: dict = {
@@ -70,7 +72,7 @@ class Config:
         self.exp_name = exp_name
         self.model_config = model_config
         self.seed = seed
-        self.training_timestep = training_timestep
+        self.training_episode_num = training_episode_num
         self.update_timestep = update_timestep
         self.env_name = env_name
         self.env_kwargs = env_kwargs
@@ -84,7 +86,7 @@ class Config:
             'exp_name': self.exp_name,
             'model_config': self.model_config.__dict__(),
             'seed': self.seed,
-            'training_timestep': self.training_timestep,
+            'training_episode_num': self.training_episode_num,
             'update_timestep': self.update_timestep,
             'env_name': self.env_name,
             'env_kwargs': self.env_kwargs,
@@ -95,6 +97,9 @@ class Config:
         }
 
     def save_config(self):
+        if self.env_kwargs is None or self.env_kwargs == {}:
+            return
+
         dir_name = pathlib.Path('checkpoint') / pathlib.Path(self.exp_name)
         if not dir_name.exists():
             dir_name.mkdir(parents=True, exist_ok=True)

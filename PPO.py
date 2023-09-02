@@ -1,8 +1,29 @@
 import torch
 from torch.distributions import MultivariateNormal, Categorical
 import numpy as np
+from typing import Union, Dict, List
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+class FixedVariance:
+    def __init__(
+        self,
+        init_std: float,
+        decay_rate: float,
+        min_value: float,
+        decay_episode: int,
+    ):
+        self.var = init_std**2
+        self.decay_rate = decay_rate
+        self.min_value = min_value
+        self.decay_episode = decay_episode
+
+    def step(self):
+        self.var = max(self.var * (self.decay_rate**2), self.min_value)
+
+    def get_var(self):
+        return self.var
+
 
 class RolloutBuffer:
     def __init__(self):
@@ -27,17 +48,15 @@ class ActorCritic(torch.nn.Module):
         state_dim: int,
         action_dim: int,
         hidden_dim: int,
+        tanh_action: bool,
         has_continuous_action_space: bool,
-        action_std_init: float,
-        trainable_std = False,
+        fix_var: Union[FixedVariance, None] = None,
     ):
         super(ActorCritic, self).__init__()
         self.has_continuous_action_space = has_continuous_action_space
-        self.trainable_std = trainable_std
-
+        self.tanh_action = tanh_action
         self.action_dim = action_dim
-        if has_continuous_action_space and trainable_std == False:
-            self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(device)
+        self.fix_var = fix_var
 
         if has_continuous_action_space:
             self.actor = torch.nn.Sequential(
@@ -45,8 +64,7 @@ class ActorCritic(torch.nn.Module):
                 torch.nn.ReLU(),
                 torch.nn.Linear(hidden_dim, hidden_dim),
                 torch.nn.ReLU(),
-                torch.nn.Linear(hidden_dim, action_dim),
-                torch.nn.Tanh(),
+                torch.nn.Linear(hidden_dim, action_dim*2) if fix_var is None else torch.nn.Linear(hidden_dim, action_dim),
             )
         else:
             self.actor = torch.nn.Sequential(
@@ -66,30 +84,26 @@ class ActorCritic(torch.nn.Module):
             torch.nn.Linear(hidden_dim, 1),
         )
 
-        if has_continuous_action_space and trainable_std == True:
-            self.trainable_cov_mat = torch.nn.Parameter(torch.ones(action_dim) * (action_std_init * action_std_init))
-            self.action_var = self.trainable_cov_mat.to(device)
-            # Why need retain_grad()?
-            self.action_var.retain_grad()
-
-    def set_action_std(self, new_action_std: float):
-        if self.has_continuous_action_space:
-            self.action_var = torch.full(
-                (self.action_dim,),
-                new_action_std * new_action_std
-            ).to(device)
-
     def forward(self):
         raise NotImplementedError
 
     def act(self, state: torch.Tensor):
         if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            if not self.trainable_std:
-                cov_mat = torch.diag_embed(self.action_var).unsqueeze(dim=0)
+            actor_pred = self.actor(state)
+            if self.fix_var is not None:
+                action_mean = actor_pred
+                if self.tanh_action:
+                    action_mean = torch.nn.functional.tanh(action_mean)
+                cov_mat = torch.diag_embed(torch.ones(self.action_dim) * self.fix_var.get_var()).to(device)
+                dist = MultivariateNormal(action_mean, cov_mat)
             else:
-                cov_mat = torch.diag_embed(self.action_var).unsqueeze(dim=0)
-            dist = MultivariateNormal(action_mean, cov_mat)
+                action_mean = actor_pred[:self.action_dim]
+                if self.tanh_action:
+                    action_mean = torch.nn.functional.tanh(action_mean)
+                    action_var = torch.sigmoid(actor_pred[self.action_dim:]) + 1e-5
+                else:
+                    action_var = torch.nn.functional.softplus(actor_pred[self.action_dim:]) + 1e-5
+                dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
         else:
             action_probs = self.actor(state)
             dist = Categorical(action_probs)
@@ -102,15 +116,27 @@ class ActorCritic(torch.nn.Module):
 
     def evaluate(self, state: torch.Tensor, action: torch.Tensor):
         if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            action_var = self.action_var.expand_as(action_mean)
-            if not self.trainable_std:
-                cov_mat = torch.diag_embed(action_var)
+            actor_pred = self.actor(state)
+            if self.fix_var is not None:
+                action_mean = actor_pred
+                if self.tanh_action:
+                    action_mean = torch.nn.functional.tanh(action_mean)
+
+                # Set co-variance of distribution.
+                action_var = torch.ones(self.action_dim) * self.fix_var.get_var()
+                action_var = action_var.expand_as(action_mean)
+                cov_mat = torch.diag_embed(action_var).to(device)
+                dist = MultivariateNormal(action_mean, cov_mat)
             else:
-                cov_mat = torch.diag_embed(action_var)
-            dist = MultivariateNormal(action_mean, cov_mat)
-            if self.action_dim == 1:
-                action = action.reshape(-1, self.action_dim)
+                action_mean = actor_pred[:, :self.action_dim]
+                if self.tanh_action:
+                    action_mean = torch.nn.functional.tanh(action_mean)
+                    action_var = torch.sigmoid(actor_pred[:, self.action_dim:]) + 1e-5
+                else:
+                    action_var = torch.nn.functional.softplus(actor_pred[:, self.action_dim:]) + 1e-5
+                dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
+                if self.action_dim == 1:
+                    action = action.reshape(-1, self.action_dim)
         else:
             action_probs = self.actor(state)
             dist = Categorical(action_probs)
@@ -134,67 +160,57 @@ class PPO:
         update_iteration: int,
         clip: float,
         has_continuous_action_space: bool,
-        action_std_init: float,
         vf_coef: float,
         entropy_coef: float,
-        trainable_std: bool = False,
+        tanh_action: bool,
+        use_GAE: bool,
+        fix_var_param: Union[Dict, None],
     ):
         self.has_continuous_action_space = has_continuous_action_space
-
-        if has_continuous_action_space:
-            self.action_std = action_std_init
-
         self.gamma = gamma
         self.clip = clip
         self.update_iteration = update_iteration
         self.buffer = RolloutBuffer()
         self.vf_coef = vf_coef
         self.entropy_coef = entropy_coef
-        self.trainable_std = trainable_std
+        self.tanh_action = tanh_action
+        self.use_GAE = use_GAE
+        if fix_var_param is None:
+            self.fix_var = None
+        else:
+            self.fix_var = FixedVariance(
+                init_std=fix_var_param['init_std'],
+                decay_rate=fix_var_param['decay_rate'],
+                min_value=fix_var_param['min_value'],
+                decay_episode=fix_var_param['decay_episode'],
+            )
 
         self.policy = ActorCritic(
             state_dim=state_dim,
             action_dim=action_dim,
             hidden_dim=hidden_dim,
+            tanh_action=tanh_action,
             has_continuous_action_space=has_continuous_action_space,
-            action_std_init=action_std_init,
-            trainable_std=trainable_std,
+            fix_var=self.fix_var,
         ).to(device)
 
         opt_list = [
             {'params': self.policy.actor.parameters(), 'lr': actor_learning_rate},
             {'params': self.policy.critic.parameters(), 'lr': critic_learning_rate},
         ]
-        if has_continuous_action_space and trainable_std:
-            opt_list.append(
-                {'params': self.policy.action_var, 'lr': actor_learning_rate}
-            )
         self.optimizer = torch.optim.Adam(opt_list)
 
         self.old_policy = ActorCritic(
             state_dim=state_dim,
             action_dim=action_dim,
             hidden_dim=hidden_dim,
+            tanh_action=tanh_action,
             has_continuous_action_space=has_continuous_action_space,
-            action_std_init=action_std_init,
-            trainable_std=trainable_std,
+            fix_var=self.fix_var,
         ).to(device)
         self.old_policy.load_state_dict(self.policy.state_dict())
 
         self.mse_loss = torch.nn.MSELoss()
-
-    def set_action_std(self, new_action_std: float):
-        if self.has_continuous_action_space:
-            self.action_std = new_action_std
-            self.policy.set_action_std(new_action_std)
-            self.old_policy.set_action_std(new_action_std)
-
-    def decay_action_std(self, action_std_decay_rate: float, min_action_std: float):
-        if self.has_continuous_action_space:
-            self.action_std = self.action_std - action_std_decay_rate
-            self.action_std = round(self.action_std, 4)
-            self.action_std = max(self.action_std, min_action_std)
-            self.set_action_std(self.action_std)
 
     def select_action(self, state: np.ndarray):
         with torch.no_grad():
@@ -218,16 +234,17 @@ class PPO:
             reversed(self.buffer.rewards),
             reversed(self.buffer.is_terminals),
         ):
-            # if is_terminal:
-                # discounted_reward = 0
-            # discounted_reward = reward + (self.gamma * discounted_reward)
-            # rewards.insert(0, discounted_reward)
-            rewards.insert(0, reward)
+            if self.use_GAE:
+                if is_terminal:
+                    discounted_reward = 0
+                discounted_reward = reward + (self.gamma * discounted_reward)
+                rewards.insert(0, discounted_reward)
+            else:
+                rewards.insert(0, reward)
         # print(sum(self.buffer.rewards))
 
         # Normalizing the rewards.
         rewards = torch.tensor(rewards, dtype=torch.float32).to(device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
         # Convert list to tensor.
         old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(device)
@@ -237,6 +254,7 @@ class PPO:
 
         # Calculate advantages
         advantages = rewards.detach() - old_state_values.detach()
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
         # Train policy with multiple epochs.
         for _ in range(self.update_iteration):
             # Evaluating old actions and values.
@@ -257,7 +275,7 @@ class PPO:
             self.optimizer.zero_grad()
             loss.mean().backward()
             # print(self.policy.action_var)
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.2)
             self.optimizer.step()
 
         # Copy new weights into old policy.
