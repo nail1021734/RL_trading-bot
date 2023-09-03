@@ -9,10 +9,8 @@ import numpy as np
 import copy
 import random
 from eval_func import testing_model
-from utils import average, mov_average, date
 import gc
 from sklearn.model_selection import ParameterGrid
-
 
 
 if __name__ == '__main__':
@@ -23,10 +21,10 @@ if __name__ == '__main__':
 
     # Set hyperparameter grid.
     param_grid = {
-        'tanh': [True, False],
+        'tanh': [False],
         'use_GAE': [True, False],
         'fix_var_param': [None, {'init_std': 0.6, 'decay_rate': 0.99, 'min_value': 0.2, 'decay_episode': 500}],
-        'softmax': [True, False],
+        'softmax': [False],
         'add_date': [True, False],
         'final_reward': [True, False],
     }
@@ -40,9 +38,9 @@ if __name__ == '__main__':
             if value is not None and value:
                 experiment_name = experiment_name + '_' + key
 
-        extra_feature_dict = {'mov_avg': mov_average, 'avg': average}
+        extra_feature_names = ['moving_average', 'average', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value']
         if hyparam['add_date']:
-            extra_feature_dict['date'] = date
+            extra_feature_names.append('date')
 
         # Create environment config.
         env_setting = {
@@ -56,7 +54,8 @@ if __name__ == '__main__':
             'target_feature': 'Adj Close',
             'clip_action': hyparam['tanh'],
             'softmax_action': hyparam['softmax'],
-            'extra_feature_dict': extra_feature_dict,
+            'extra_feature_names': ['moving_average', 'average', 'date', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value'],
+            'output_split_ticket_state': False,
         }
 
         # Create test environment.
@@ -92,7 +91,7 @@ if __name__ == '__main__':
             model_config=model_config,
             # seed=42,
             seed=22,
-            training_episode_num=200000,
+            training_episode_num=100000,
             # Update model every 10 episode.
             update_timestep=env.episode_size*10,
             env_name='MultiFinanceEnv',
@@ -108,7 +107,7 @@ if __name__ == '__main__':
         config.save_config()
 
         # Initialize summary writer.
-        writer = SummaryWriter(f'checkpoint2/{config.exp_name}/log')
+        writer = SummaryWriter(f'checkpoint3/{config.exp_name}/log')
 
         # Set random seed.
         torch.manual_seed(config.seed)

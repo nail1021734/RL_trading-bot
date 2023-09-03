@@ -18,7 +18,6 @@ if __name__ == '__main__':
     # 3. Add more feature.
 
     stock_list = ['2330.TW', '2317.TW', '2454.TW', '2382.TW', '2412.TW', '2308.TW', '2881.TW', '6505.TW', '2882.TW', '2303.TW', '1303.TW', '1301.TW', '2886.TW', '3711.TW', '2891.TW', '2002.TW', '1216.TW', '5880.TW', '2207.TW', '2884.TW']
-    print(f'Number of stock: {len(set(stock_list))}')
     # Create environment config.
     env_setting = {
         'start_date': '2010-01-01',
@@ -31,8 +30,8 @@ if __name__ == '__main__':
         'target_feature': 'Adj Close',
         'clip_action': True,
         'softmax_action': False,
-        'extra_feature_names': ['moving_average', 'average', 'date'],
-        'output_split_ticket_state': False,
+        'extra_feature_names': ['moving_average', 'average', 'date', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value'],
+        'output_split_ticket_state': True,
     }
 
     # Create test environment.
@@ -47,8 +46,8 @@ if __name__ == '__main__':
         'target_feature': 'Adj Close',
         'clip_action': True,
         'softmax_action': False,
-        'extra_feature_names': ['moving_average', 'average', 'date'],
-        'output_split_ticket_state': False,
+        'extra_feature_names': ['moving_average', 'average', 'date', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value'],
+        'output_split_ticket_state': True,
     }
 
     # Initialize environments.
@@ -60,6 +59,8 @@ if __name__ == '__main__':
         state_dim=env.state_dim,
         action_dim=env.action_dim,
         hidden_dim=256,
+        ticker_num=len(stock_list),
+        use_transformer_model=True,
         actor_learning_rate=5e-4,
         critic_learning_rate=3e-4,
         gamma=0.925,
@@ -113,6 +114,7 @@ if __name__ == '__main__':
         state_dim=model_config.state_dim,
         action_dim=model_config.action_dim,
         hidden_dim=model_config.hidden_dim,
+        ticker_num=model_config.ticker_num,
         actor_learning_rate=model_config.actor_learning_rate,
         critic_learning_rate=model_config.critic_learning_rate,
         gamma=model_config.gamma,
@@ -122,6 +124,7 @@ if __name__ == '__main__':
         vf_coef=model_config.vf_coef,
         entropy_coef=model_config.entropy_coef,
         tanh_action=model_config.tanh_action,
+        use_transformer_model=model_config.use_transformer_model,
         use_GAE=model_config.use_GAE,
         fix_var_param=model_config.fix_var_param,
     )
@@ -186,7 +189,6 @@ if __name__ == '__main__':
 
             if done:
                 break
-        gc.collect()
 
     # Close writer.
     writer.close()

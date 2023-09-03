@@ -24,7 +24,6 @@ class FixedVariance:
     def get_var(self):
         return self.var
 
-
 class RolloutBuffer:
     def __init__(self):
         self.actions = []
@@ -42,6 +41,61 @@ class RolloutBuffer:
         del self.state_values[:]
         del self.is_terminals[:]
 
+class TransformerModel(torch.nn.Module):
+    def __init__(
+        self,
+        state_dim: int,
+        hidden_dim: int,
+        action_dim: int,
+        ticker_num: int,
+        fix_var: Union[FixedVariance, None] = None,
+        critic_model: bool = False,
+    ):
+        super(TransformerModel, self).__init__()
+        self.state_dim = state_dim
+        self.hidden_dim = hidden_dim
+        self.action_dim = action_dim
+        self.ticker_num = ticker_num
+
+        self.linear1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.transformer = torch.nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=8,
+            dim_feedforward=hidden_dim*2,
+            batch_first=True,
+        )
+
+        if critic_model == True:
+            self.linear2 = torch.nn.Linear(hidden_dim*ticker_num, 1)
+        else:
+            if fix_var is None:
+                self.linear2 = torch.nn.Linear(hidden_dim*ticker_num, action_dim*2)
+            else:
+                self.linear2 = torch.nn.Linear(hidden_dim*ticker_num, action_dim)
+
+    def forward(self, state: "torch.Tensor"):
+        if len(state.shape) == 3:
+            # Have batch.
+            state = self.linear1(state)
+            state = torch.nn.functional.relu(state)
+            # Transformer Encoder default use relu activation.
+            state = self.transformer(state)
+            # Flatten the state.
+            state = state.reshape(state.shape[0], -1)
+            state = self.linear2(state)
+        else:
+            # No batch.
+            state = self.linear1(state)
+            state = torch.nn.functional.relu(state)
+            # Transformer Encoder default use relu activation.
+            state = self.transformer(state.unsqueeze(0))
+            # Flatten the state.
+            state = state.reshape(-1)
+            state = self.linear2(state)
+
+        return state
+
+
 class ActorCritic(torch.nn.Module):
     def __init__(
         self,
@@ -49,6 +103,8 @@ class ActorCritic(torch.nn.Module):
         action_dim: int,
         hidden_dim: int,
         tanh_action: bool,
+        ticker_num: int,
+        use_transformer_model: bool,
         has_continuous_action_space: bool,
         fix_var: Union[FixedVariance, None] = None,
     ):
@@ -57,8 +113,18 @@ class ActorCritic(torch.nn.Module):
         self.tanh_action = tanh_action
         self.action_dim = action_dim
         self.fix_var = fix_var
+        self.use_transformer_model = use_transformer_model
 
-        if has_continuous_action_space:
+        if self.use_transformer_model:
+            self.actor = TransformerModel(
+                state_dim=state_dim,
+                hidden_dim=hidden_dim,
+                action_dim=action_dim,
+                ticker_num=ticker_num,
+                fix_var=fix_var,
+                critic_model=False,
+            )
+        else:
             self.actor = torch.nn.Sequential(
                 torch.nn.Linear(state_dim, hidden_dim),
                 torch.nn.ReLU(),
@@ -66,47 +132,44 @@ class ActorCritic(torch.nn.Module):
                 torch.nn.ReLU(),
                 torch.nn.Linear(hidden_dim, action_dim*2) if fix_var is None else torch.nn.Linear(hidden_dim, action_dim),
             )
+
+        if self.use_transformer_model:
+            self.critic = TransformerModel(
+                state_dim=state_dim,
+                hidden_dim=hidden_dim,
+                action_dim=action_dim,
+                ticker_num=ticker_num,
+                fix_var=None,
+                critic_model=True,
+            )
         else:
-            self.actor = torch.nn.Sequential(
+            self.critic = torch.nn.Sequential(
                 torch.nn.Linear(state_dim, hidden_dim),
                 torch.nn.ReLU(),
                 torch.nn.Linear(hidden_dim, hidden_dim),
                 torch.nn.ReLU(),
-                torch.nn.Linear(hidden_dim, action_dim),
-                torch.nn.Softmax(dim=-1),
+                torch.nn.Linear(hidden_dim, 1),
             )
-
-        self.critic = torch.nn.Sequential(
-            torch.nn.Linear(state_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 1),
-        )
 
     def forward(self):
         raise NotImplementedError
 
     def act(self, state: torch.Tensor):
-        if self.has_continuous_action_space:
-            actor_pred = self.actor(state)
-            if self.fix_var is not None:
-                action_mean = actor_pred
-                if self.tanh_action:
-                    action_mean = torch.nn.functional.tanh(action_mean)
-                cov_mat = torch.diag_embed(torch.ones(self.action_dim) * self.fix_var.get_var()).to(device)
-                dist = MultivariateNormal(action_mean, cov_mat)
-            else:
-                action_mean = actor_pred[:self.action_dim]
-                if self.tanh_action:
-                    action_mean = torch.nn.functional.tanh(action_mean)
-                    action_var = torch.sigmoid(actor_pred[self.action_dim:]) + 1e-5
-                else:
-                    action_var = torch.nn.functional.softplus(actor_pred[self.action_dim:]) + 1e-5
-                dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
+        actor_pred = self.actor(state)
+        if self.fix_var is not None:
+            action_mean = actor_pred
+            if self.tanh_action:
+                action_mean = torch.nn.functional.tanh(action_mean)
+            cov_mat = torch.diag_embed(torch.ones(self.action_dim) * self.fix_var.get_var()).to(device)
+            dist = MultivariateNormal(action_mean, cov_mat)
         else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
+            action_mean = actor_pred[:self.action_dim]
+            if self.tanh_action:
+                action_mean = torch.nn.functional.tanh(action_mean)
+                action_var = torch.sigmoid(actor_pred[self.action_dim:]) + 1e-5
+            else:
+                action_var = torch.nn.functional.softplus(actor_pred[self.action_dim:]) + 1e-5
+            dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
 
         action = dist.sample()
         action_logprob = dist.log_prob(action)
@@ -115,31 +178,27 @@ class ActorCritic(torch.nn.Module):
         return action.detach(), action_logprob.detach(), state_value.detach()
 
     def evaluate(self, state: torch.Tensor, action: torch.Tensor):
-        if self.has_continuous_action_space:
-            actor_pred = self.actor(state)
-            if self.fix_var is not None:
-                action_mean = actor_pred
-                if self.tanh_action:
-                    action_mean = torch.nn.functional.tanh(action_mean)
+        actor_pred = self.actor(state)
+        if self.fix_var is not None:
+            action_mean = actor_pred
+            if self.tanh_action:
+                action_mean = torch.nn.functional.tanh(action_mean)
 
-                # Set co-variance of distribution.
-                action_var = torch.ones(self.action_dim) * self.fix_var.get_var()
-                action_var = action_var.expand_as(action_mean)
-                cov_mat = torch.diag_embed(action_var).to(device)
-                dist = MultivariateNormal(action_mean, cov_mat)
-            else:
-                action_mean = actor_pred[:, :self.action_dim]
-                if self.tanh_action:
-                    action_mean = torch.nn.functional.tanh(action_mean)
-                    action_var = torch.sigmoid(actor_pred[:, self.action_dim:]) + 1e-5
-                else:
-                    action_var = torch.nn.functional.softplus(actor_pred[:, self.action_dim:]) + 1e-5
-                dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
-                if self.action_dim == 1:
-                    action = action.reshape(-1, self.action_dim)
+            # Set co-variance of distribution.
+            action_var = torch.ones(self.action_dim) * self.fix_var.get_var()
+            action_var = action_var.expand_as(action_mean)
+            cov_mat = torch.diag_embed(action_var).to(device)
+            dist = MultivariateNormal(action_mean, cov_mat)
         else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
+            action_mean = actor_pred[:, :self.action_dim]
+            if self.tanh_action:
+                action_mean = torch.nn.functional.tanh(action_mean)
+                action_var = torch.sigmoid(actor_pred[:, self.action_dim:]) + 1e-5
+            else:
+                action_var = torch.nn.functional.softplus(actor_pred[:, self.action_dim:]) + 1e-5
+            dist = MultivariateNormal(action_mean, torch.diag_embed(action_var))
+            if self.action_dim == 1:
+                action = action.reshape(-1, self.action_dim)
 
         action_logprobs = dist.log_prob(action)
         dist_entropy = dist.entropy()
@@ -147,13 +206,13 @@ class ActorCritic(torch.nn.Module):
 
         return action_logprobs, state_value, dist_entropy
 
-
 class PPO:
     def __init__(
         self,
         state_dim: int,
         action_dim: int,
         hidden_dim: int,
+        ticker_num: int,
         actor_learning_rate: float,
         critic_learning_rate: float,
         gamma: float,
@@ -165,6 +224,7 @@ class PPO:
         tanh_action: bool,
         use_GAE: bool,
         fix_var_param: Union[Dict, None],
+        use_transformer_model: bool,
     ):
         self.has_continuous_action_space = has_continuous_action_space
         self.gamma = gamma
@@ -175,6 +235,8 @@ class PPO:
         self.entropy_coef = entropy_coef
         self.tanh_action = tanh_action
         self.use_GAE = use_GAE
+        self.use_transformer_model = use_transformer_model
+        self.ticker_num = ticker_num
         if fix_var_param is None:
             self.fix_var = None
         else:
@@ -189,7 +251,9 @@ class PPO:
             state_dim=state_dim,
             action_dim=action_dim,
             hidden_dim=hidden_dim,
+            ticker_num=ticker_num,
             tanh_action=tanh_action,
+            use_transformer_model=use_transformer_model,
             has_continuous_action_space=has_continuous_action_space,
             fix_var=self.fix_var,
         ).to(device)
@@ -204,7 +268,9 @@ class PPO:
             state_dim=state_dim,
             action_dim=action_dim,
             hidden_dim=hidden_dim,
+            ticker_num=ticker_num,
             tanh_action=tanh_action,
+            use_transformer_model=use_transformer_model,
             has_continuous_action_space=has_continuous_action_space,
             fix_var=self.fix_var,
         ).to(device)
@@ -222,10 +288,7 @@ class PPO:
         self.buffer.logprobs.append(action_logprob)
         self.buffer.state_values.append(state_val)
 
-        if self.has_continuous_action_space:
-            return action.detach().cpu().numpy().flatten()
-        else:
-            return action.item()
+        return action.detach().cpu().numpy().flatten()
 
     def update(self):
         rewards = []

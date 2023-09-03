@@ -308,9 +308,9 @@ class MultiFinanceEnv:
                     state[-1].append(state_dict[t][feature_name])
                 for feature_name in self.extra_feature_names:
                     if feature_name in self.extra_feature_processor.general_functions.keys():
-                        state.append(state_dict[feature_name])
+                        state[-1].append(state_dict[feature_name])
                     else:
-                        state.append(state_dict[t][feature_name])
+                        state[-1].append(state_dict[t][feature_name])
         else:
             state.append(state_dict['balance'])
             for feature_name in self.extra_feature_names:
@@ -344,7 +344,7 @@ class MultiFinanceEnv:
         else:
             self.begin_date = 0
         # Get the episode data.
-        self.episode_date = self.data_date[self.begin_date: self.begin_date + self.episode_size+1]
+        # self.episode_date = self.data_date[self.begin_date: self.begin_date + self.episode_size+1]
         self.episode_data = {t: {} for t in self.tickers}
         for t, val in self.data.items():
             for key, value in val.items():

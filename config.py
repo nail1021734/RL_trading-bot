@@ -14,6 +14,8 @@ class ModelConfig:
     state_dim: int = 8
     action_dim: int = 1
     hidden_dim: int = 256
+    ticker_num: int = 1
+    use_transformer_model: bool = False
     actor_learning_rate: float = 1e-4
     critic_learning_rate: float = 1e-3
     gamma: float = 0.99
@@ -25,6 +27,7 @@ class ModelConfig:
     tanh_action: bool = True
     use_GAE: bool = True
     fix_var_param: Union[Dict, None] = None
+
 
     def __dict__(self):
         return asdict(self)
