@@ -75,6 +75,8 @@ class TransformerModel(torch.nn.Module):
 
     def forward(self, state: "torch.Tensor"):
         if len(state.shape) == 3:
+            # Normalize state.
+            # state = state - state.mean(dim=1, keepdim=True) / (state.std(dim=1, keepdim=True) + 1e-8)
             # Have batch.
             state = self.linear1(state)
             state = torch.nn.functional.relu(state)
@@ -84,6 +86,7 @@ class TransformerModel(torch.nn.Module):
             state = state.reshape(state.shape[0], -1)
             state = self.linear2(state)
         else:
+            # state = (state - state.mean(dim=0, keepdim=True)) / (state.std(dim=0, keepdim=True) + 1e-8)
             # No batch.
             state = self.linear1(state)
             state = torch.nn.functional.relu(state)
@@ -300,7 +303,7 @@ class PPO:
             if self.use_GAE:
                 if is_terminal:
                     discounted_reward = 0
-                discounted_reward = reward + (self.gamma * discounted_reward)
+                discounted_reward = (reward) + (self.gamma * discounted_reward)
                 rewards.insert(0, discounted_reward)
             else:
                 rewards.insert(0, reward)
@@ -338,7 +341,7 @@ class PPO:
             self.optimizer.zero_grad()
             loss.mean().backward()
             # print(self.policy.action_var)
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.2)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             self.optimizer.step()
 
         # Copy new weights into old policy.

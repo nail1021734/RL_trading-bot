@@ -39,9 +39,9 @@ def random_baseline(test_env: Union[MultiFinanceEnv, FinanceEnv], seed: int, epi
     for _ in epi_iter:
         state = test_env.reset()
         for t in range(test_env.episode_size):
-            action = [random.random() for _ in range(test_env.action_dim)]
+            action = [random.uniform(-1, 1) for _ in range(test_env.action_dim)]
             state, reward, done, _ = test_env.step(action)
-            test_env.render()
+            # test_env.render()
 
             if done:
                 epi_iter.set_description(f"Reward: {test_env.get_final_reward()}")
@@ -53,23 +53,31 @@ if __name__ == "__main__":
     # Random seed
     seed = 42
 
-    # Test environment setting
+    stock_list = ['2330.TW', '2317.TW', '2454.TW', '2382.TW', '2412.TW', '2308.TW', '2881.TW', '6505.TW', '2882.TW', '2303.TW', '1303.TW', '1301.TW', '2886.TW', '3711.TW', '2891.TW', '2002.TW', '1216.TW', '5880.TW', '2207.TW', '2884.TW']
+    # Test environment setting.
     test_env_setting = {
-        'start_date': '2020-12-31',
-        'end_date': None,
-        'tickers': ['3231.TW', '2356.TW', '2610.TW', '2330.TW', '0050.TW'],
-        'state_feature_names': ['Open', 'Close', 'Adj Close'],
+        'start_date': '2021-01-01',
+        'end_date': '2023-06-30',
+        'tickers': stock_list,
+        # 'state_feature_names': ['Open', 'Close', 'Adj Close'],
+        'state_feature_names': ['Open', 'Close'],
         'initial_balance': 10000,
         'initial_stock': 0,
         'episode_size': 30,
-        'target_feature': 'Adj Close',
-        'extra_feature_dict': None,
+        'target_feature': 'Close',
+        'clip_action': True,
+        'softmax_action': True,
+        'use_final_reward': True,
+        'extra_feature_names': ['moving_average', 'average', 'date', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value'],
+        'output_split_ticket_state': True,
+        'log_return': True,
     }
+
     test_env = MultiFinanceEnv(**test_env_setting)
 
     # Random baseline
     print("Random baseline")
-    print(random_baseline(test_env, seed, 10000))
+    print(random_baseline(test_env, seed, 20000))
 
 
 

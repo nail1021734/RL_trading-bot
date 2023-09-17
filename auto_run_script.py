@@ -55,6 +55,7 @@ if __name__ == '__main__':
             'clip_action': hyparam['tanh'],
             'softmax_action': hyparam['softmax'],
             'extra_feature_names': ['moving_average', 'average', 'date', 'last_K_value', 'last_D_value', 'last_J_value', 'K_value', 'D_value', 'J_value'],
+            'log_return': True,
             'output_split_ticket_state': False,
         }
 
